@@ -7,7 +7,14 @@ datasource db {
 }
 
 model Job {
-  id     Int    @id @default(autoincrement())
-  name   String
-  status String
+  id             Int      @id @default(autoincrement())
+  type           String
+  payload        Json
+  status         String   @default("queued")
+  attempts       Int      @default(0)
+  maxAttempts    Int      @default(3)
+  idempotencyKey String?  @unique
+  error          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }

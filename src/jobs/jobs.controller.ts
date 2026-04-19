@@ -11,6 +11,11 @@ constructor(private readonly jobsService: JobsService) {}
     return this.jobsService.createJob(body);
   }
 
+  @Get('stats')
+  async getStats() {
+    return this.jobsService.getSystemStats();
+  }
+
   @Get()
   findAll() {
     return this.jobsService.getAllJobs();
@@ -24,5 +29,10 @@ constructor(private readonly jobsService: JobsService) {}
   @Get(':id/status')
   getStatus(@Param('id') id: string) {
     return this.jobsService.getJobStatus(Number(id));
+  }
+
+  @Post(':id/retry')
+  retry(@Param('id') id: string) {
+    return this.jobsService.retryJob(Number(id));
   }
 }

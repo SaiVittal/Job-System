@@ -1,8 +1,17 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString } from 'class-validator';
+import { IsString, IsObject, IsOptional } from 'class-validator';
 
 export class CreateJobDto {
   @ApiProperty()
   @IsString()
-  name: string;
+  type: string;
+
+  @ApiProperty()
+  @IsObject()
+  payload: any;
+
+  @ApiProperty({ required: false })
+  @IsString()
+  @IsOptional()
+  idempotencyKey?: string;
 }

@@ -1,0 +1,71 @@
+import { PrismaClient } from '@prisma/client';
+import { IJobRepository } from '../../core/interfaces/job.repository.interface';
+import { JobModel, JobStatus } from '../../core/interfaces/job.interface';
+
+export class PrismaJobRepository implements IJobRepository {
+  constructor(private prisma: PrismaClient) {}
+
+  async updateStatus(id: string | number, status: JobStatus, error?: string): Promise<void> {
+    await this.prisma.job.update({
+      where: { id: Number(id) },
+      data: { 
+        status,
+        error: error || null
+      },
+    });
+  }
+
+  async incrementAttempts(id: string | number): Promise<void> {
+    await this.prisma.job.update({
+      where: { id: Number(id) },
+      data: { 
+        attempts: { increment: 1 }
+      },
+    });
+  }
+
+  async getById(id: string | number): Promise<JobModel | null> {
+    const job = await this.prisma.job.findUnique({
+      where: { id: Number(id) },
+    });
+
+    if (!job) return null;
+
+    return {
+      id: job.id,
+      type: job.type,
+      payload: job.payload,
+      status: job.status as JobStatus,
+      attempts: job.attempts,
+      maxAttempts: job.maxAttempts,
+      idempotencyKey: job.idempotencyKey || undefined,
+      error: job.error || undefined,
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+    };
+  }
+
+  async getStats(): Promise<Record<JobStatus, number>> {
+    const stats = await this.prisma.job.groupBy({
+      by: ['status'],
+      _count: {
+        _all: true,
+      },
+    });
+
+    const result: Record<string, number> = {
+      queued: 0,
+      processing: 0,
+      completed: 0,
+      failed: 0,
+      retrying: 0,
+      dead: 0,
+    };
+
+    stats.forEach((stat) => {
+      result[stat.status] = stat._count._all;
+    });
+
+    return result as Record<JobStatus, number>;
+  }
+}
