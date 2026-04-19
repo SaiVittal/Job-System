@@ -16,8 +16,8 @@ export class JobQueueService {
     this.logger.log('JobService initialized');
   }
 
-  async dispatchJob(jobId: number, type: string, idempotencyKey?: string) {
-    this.logger.log(`Dispatching job ${jobId} (type: ${type}, key: ${idempotencyKey}) to queue`);
+  async dispatchJob(jobId: number, type: string, options: { idempotencyKey?: string, priority?: number, delay?: number } = {}) {
+    this.logger.log(`Dispatching job ${jobId} (type: ${type}) to queue with priority ${options.priority}`);
 
     const queuedJob = await this.queueClient.addJob(type, { jobId, type }, {
       attempts: 3,
@@ -25,7 +25,9 @@ export class JobQueueService {
         type: 'exponential',
         delay: 2000,
       },
-      idempotencyKey,
+      idempotencyKey: options.idempotencyKey,
+      priority: options.priority,
+      delay: options.delay,
     });
 
     this.logger.log(`Job ${jobId} dispatched with BullMQ id ${queuedJob.id}`);
@@ -40,7 +42,7 @@ export class JobQueueService {
     this.logger.log(`Manually retrying job ${jobId} (type: ${type})`, 'JobQueueService');
     // For a manual retry, we might want to bypass the old idempotency key if we want to force it
     // But here we keep the same key to ensure we don't double-queue even during manual retry
-    return this.dispatchJob(jobId, type, idempotencyKey);
+    return this.dispatchJob(jobId, type, { idempotencyKey });
   }
 
   async getQueueLength(): Promise<number> {

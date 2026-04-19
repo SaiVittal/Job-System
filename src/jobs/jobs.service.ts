@@ -12,7 +12,7 @@ export class JobsService {
     this.repository = new PrismaJobRepository(this.prisma);
   }
 
-  async createJob(dto: CreateJobDto) {
+  async createJob(dto: CreateJobDto, traceInfo?: { traceId: string, correlationId: string }) {
     // 1. BACKPRESSURE: Adaptive Throttling
     const maxQueueLength = parseInt(process.env.MAX_QUEUE_LENGTH || '10000', 10);
     const currentLength = await this.queueService.getQueueLength();
@@ -35,11 +35,20 @@ export class JobsService {
           payload: dto.payload,
           idempotencyKey: dto.idempotencyKey,
           status: 'queued',
+          priority: dto.priority || 0,
+          version: dto.version || 1,
+          scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
+          traceId: traceInfo?.traceId,
+          correlationId: traceInfo?.correlationId,
         },
       });
 
       // 2. DISPATCH
-      await this.queueService.dispatchJob(job.id, job.type, job.idempotencyKey || undefined);
+      await this.queueService.dispatchJob(job.id, job.type, {
+        idempotencyKey: job.idempotencyKey || undefined,
+        priority: job.priority,
+        delay: job.scheduledAt ? job.scheduledAt.getTime() - Date.now() : 0,
+      });
       return job;
     } catch (error: any) {
       // 3. IDEMPOTENCY: Handle unique constraint failure (P2002)

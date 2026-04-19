@@ -14,4 +14,16 @@ export class CreateJobDto {
   @IsString()
   @IsOptional()
   idempotencyKey?: string;
+
+  @ApiProperty({ required: false, default: 0 })
+  @IsOptional()
+  priority?: number;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  scheduledAt?: string;
+
+  @ApiProperty({ required: false, default: 1 })
+  @IsOptional()
+  version?: number;
 }

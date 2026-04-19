@@ -23,6 +23,8 @@ export class QueueClient {
       jobId: options.idempotencyKey,
       removeOnComplete: options.removeOnComplete ?? true,
       removeOnFail: options.removeOnFail ?? false,
+      priority: options.priority,
+      delay: options.delay,
     };
 
     return this.queue.add(name, data, bullOptions);

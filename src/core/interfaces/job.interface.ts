@@ -16,6 +16,11 @@ export interface JobModel<T = any> {
   maxAttempts: number;
   idempotencyKey?: string;
   error?: string;
+  traceId?: string;
+  correlationId?: string;
+  priority?: number;
+  version: number;
+  scheduledAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }

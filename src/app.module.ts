@@ -4,6 +4,8 @@ import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { JobsModule } from './jobs/jobs.module';
+import { CorrelationMiddleware } from './nest/middleware/correlation.middleware';
+import { NestModule, MiddlewareConsumer } from '@nestjs/common';
 
 @Module({
   imports: [
@@ -15,4 +17,8 @@ import { JobsModule } from './jobs/jobs.module';
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(CorrelationMiddleware).forRoutes('*');
+  }
+}

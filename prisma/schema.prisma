@@ -15,6 +15,11 @@ model Job {
   maxAttempts    Int      @default(3)
   idempotencyKey String?  @unique
   error          String?
+  priority       Int      @default(0)
+  traceId        String?
+  correlationId  String?
+  version        Int      @default(1)
+  scheduledAt    DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 }

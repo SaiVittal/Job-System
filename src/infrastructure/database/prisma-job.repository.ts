@@ -62,6 +62,11 @@ export class PrismaJobRepository implements IJobRepository {
       maxAttempts: job.maxAttempts,
       idempotencyKey: job.idempotencyKey || undefined,
       error: job.error || undefined,
+      traceId: job.traceId || undefined,
+      correlationId: job.correlationId || undefined,
+      priority: job.priority,
+      version: job.version,
+      scheduledAt: job.scheduledAt || undefined,
       createdAt: job.createdAt,
       updatedAt: job.updatedAt,
     }));
@@ -83,6 +88,11 @@ export class PrismaJobRepository implements IJobRepository {
       maxAttempts: job.maxAttempts,
       idempotencyKey: job.idempotencyKey || undefined,
       error: job.error || undefined,
+      traceId: job.traceId || undefined,
+      correlationId: job.correlationId || undefined,
+      priority: job.priority,
+      version: job.version,
+      scheduledAt: job.scheduledAt || undefined,
       createdAt: job.createdAt,
       updatedAt: job.updatedAt,
     };

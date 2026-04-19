@@ -6,6 +6,9 @@ import { IJobRepository } from '../interfaces/job.repository.interface';
 import { JobStatus } from '../interfaces/job.interface';
 import { withTimeout } from './worker.utils';
 import { MetricsRegistry } from '../metrics/metrics.registry';
+import { trace, SpanStatusCode, SpanKind } from '@opentelemetry/api';
+
+const tracer = trace.getTracer('job-worker');
 
 export interface WorkerOptions {
   connection: Redis;
@@ -46,65 +49,103 @@ export class JobWorker {
       throw new Error(errorMsg);
     }
 
-    const startTime = Date.now();
-    try {
-      // 1. Fetch current state from DB
-      const jobModel = await this.repository.getById(jobId);
-      if (!jobModel) throw new Error(`Job ${jobId} not found`);
+    return tracer.startActiveSpan(
+      `Job ${type}`,
+      {
+        kind: SpanKind.CONSUMER,
+        attributes: {
+          'job.id': jobId,
+          'job.type': type,
+          'job.attempt': job.attemptsMade + 1,
+        },
+      },
+      async (span) => {
+        const startTime = Date.now();
+        try {
+          // 1. Fetch current state from DB
+          const jobModel = await this.repository.getById(jobId);
+          if (!jobModel) throw new Error(`Job ${jobId} not found`);
 
-      // 2. Idempotency & Poison Pill Check
-      if (jobModel.status === JobStatus.COMPLETED) {
-        this.logger.warn(`[Job ${jobId}] Already marked as COMPLETED in DB. Skipping duplicate execution.`, 'JobWorker', { jobId, type });
-        return;
+          if (jobModel.traceId) span.setAttribute('job.traceId', jobModel.traceId);
+          if (jobModel.correlationId) span.setAttribute('job.correlationId', jobModel.correlationId);
+
+          // 2. Rate Limiting Check
+          if (handler.metadata?.rateLimit) {
+            const { points, duration } = handler.metadata.rateLimit;
+            const rateKey = `rate-limit:${type}`;
+            const current = await this.options.connection.incr(rateKey);
+            if (current === 1) await this.options.connection.expire(rateKey, duration);
+            
+            if (current > points) {
+              span.addEvent('rate_limit_exceeded');
+              this.logger.warn(`[Job ${jobId}] Rate limit exceeded for ${type}`, 'JobWorker');
+              await job.moveToDelayed(Date.now() + (duration * 1000), job.token);
+              throw new Error(`Rate limit exceeded for ${type}`);
+            }
+          }
+
+          // 3. Versioning Check
+          if (handler.metadata?.supportedVersions && !handler.metadata.supportedVersions.includes(jobModel.version)) {
+            const errorMsg = `Job version ${jobModel.version} not supported by handler ${type}`;
+            throw new Error(errorMsg);
+          }
+
+          // 4. Idempotency & Poison Pill Check
+          if (jobModel.status === JobStatus.COMPLETED) {
+            this.logger.warn(`[Job ${jobId}] Already COMPLETED. Skipping.`, 'JobWorker');
+            return;
+          }
+
+          if (jobModel.attempts >= jobModel.maxAttempts) {
+            await this.repository.updateStatus(jobId, JobStatus.DEAD, 'Poison Pill: Max attempts reached');
+            this.metrics.increment('jobs_poison_pill_total', { type });
+            return;
+          }
+
+          await this.repository.startProcessing(jobId);
+
+          const timeoutMs = this.options.jobTimeoutMs || 30000;
+          const controller = new AbortController();
+
+          const heartbeatInterval = setInterval(async () => {
+            const key = `job-heartbeat:${jobId}`;
+            await this.options.connection.set(key, Date.now().toString(), 'EX', 30);
+          }, 10000);
+
+          try {
+            await withTimeout(
+              (signal) => handler.handle(jobModel, signal),
+              timeoutMs,
+              controller
+            );
+          } finally {
+            clearInterval(heartbeatInterval);
+            await this.options.connection.del(`job-heartbeat:${jobId}`);
+          }
+
+          const durationMs = Date.now() - startTime;
+          await this.repository.updateStatus(jobId, JobStatus.COMPLETED);
+          
+          this.logger.log(`[Job ${jobId}] Completed in ${durationMs}ms`, 'JobWorker');
+          this.metrics.increment('jobs_processed_total', { type, status: 'success' });
+          this.metrics.observe('job_duration_ms', durationMs, { type });
+          span.setStatus({ code: SpanStatusCode.OK });
+
+        } catch (error: any) {
+          const durationMs = Date.now() - startTime;
+          span.recordException(error);
+          span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+          
+          this.logger.error(`[Job ${jobId}] Failed: ${error.message}`, error.stack, 'JobWorker');
+          await this.repository.updateStatus(jobId, JobStatus.FAILED, error.message);
+          
+          this.metrics.increment('jobs_processed_total', { type, status: 'failed' });
+          throw error; 
+        } finally {
+          span.end();
+        }
       }
-
-      if (jobModel.attempts >= jobModel.maxAttempts) {
-        this.logger.error(`[Job ${jobId}] Poison Pill Detected: Job has already reached max attempts (${jobModel.attempts}). Moving to DEAD.`, undefined, 'JobWorker', { jobId, type, attempts: jobModel.attempts });
-        await this.repository.updateStatus(jobId, JobStatus.DEAD, 'Poison Pill: Max attempts reached in DB');
-        this.metrics.increment('jobs_poison_pill_total', { type });
-        return;
-      }
-
-      this.logger.log(`[Job ${jobId}] Processing attempt ${job.attemptsMade + 1}`, 'JobWorker', { jobId, type, attempt: job.attemptsMade + 1 });
-      
-      // Combine multiple DB writes into ONE atomic operation (High Load optimization)
-      await this.repository.startProcessing(jobId);
-
-      const timeoutMs = this.options.jobTimeoutMs || 30000;
-      const controller = new AbortController();
-
-      // 3. Start Heartbeat (Transient state in Redis to avoid DB load)
-      const heartbeatInterval = setInterval(async () => {
-        const key = `job-heartbeat:${jobId}`;
-        await this.options.connection.set(key, Date.now().toString(), 'EX', 30);
-      }, 10000); // Every 10 seconds
-
-      try {
-        await withTimeout(
-          (signal) => handler.handle(jobModel, signal),
-          timeoutMs,
-          controller
-        );
-      } finally {
-        clearInterval(heartbeatInterval);
-        await this.options.connection.del(`job-heartbeat:${jobId}`);
-      }
-
-      const duration = Date.now() - startTime;
-      await this.repository.updateStatus(jobId, JobStatus.COMPLETED);
-      
-      this.logger.log(`[Job ${jobId}] Completed`, 'JobWorker', { jobId, type, duration });
-      this.metrics.increment('jobs_processed_total', { type, status: 'success' });
-      this.metrics.observe('job_duration_ms', duration, { type });
-
-    } catch (error: any) {
-      const duration = Date.now() - startTime;
-      this.logger.error(`[Job ${jobId}] Attempt failed: ${error.message}`, error.stack, 'JobWorker', { jobId, type, duration });
-      await this.repository.updateStatus(jobId, JobStatus.FAILED, error.message);
-      
-      this.metrics.increment('jobs_processed_total', { type, status: 'failed' });
-      throw error; 
-    }
+    );
   }
 
   private setupListeners() {
@@ -112,7 +153,6 @@ export class JobWorker {
       if (job) {
         const { jobId } = job.data;
         if (job.attemptsMade >= (job.opts.attempts || 1)) {
-           this.logger.error(`[Job ${jobId}] Permanent failure`, err.stack, 'JobWorker');
            await this.repository.updateStatus(jobId, JobStatus.DEAD, `DEAD: ${err.message}`);
         }
       }

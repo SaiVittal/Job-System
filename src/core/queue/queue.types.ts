@@ -9,4 +9,6 @@ export interface QueueJobOptions {
   idempotencyKey?: string;
   removeOnComplete?: boolean | number;
   removeOnFail?: boolean | number;
+  priority?: number;
+  delay?: number;
 }
