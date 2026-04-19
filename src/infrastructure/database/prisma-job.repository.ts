@@ -15,13 +15,56 @@ export class PrismaJobRepository implements IJobRepository {
     });
   }
 
-  async incrementAttempts(id: string | number): Promise<void> {
+  async startProcessing(id: string | number): Promise<void> {
     await this.prisma.job.update({
       where: { id: Number(id) },
       data: { 
-        attempts: { increment: 1 }
+        status: JobStatus.PROCESSING,
+        attempts: { increment: 1 },
+        updatedAt: new Date(),
       },
     });
+  }
+
+  async recoverStuckJobs(timeoutMinutes: number): Promise<number> {
+    const cutoff = new Date(Date.now() - timeoutMinutes * 60000);
+    
+    const result = await this.prisma.job.updateMany({
+      where: {
+        status: JobStatus.PROCESSING,
+        updatedAt: { lt: cutoff },
+      },
+      data: {
+        status: JobStatus.FAILED,
+        error: 'RECOVERY: Job stuck in processing for too long.',
+      },
+    });
+
+    return result.count;
+  }
+
+  async getStuckJobs(timeoutMinutes: number): Promise<JobModel[]> {
+    const cutoff = new Date(Date.now() - timeoutMinutes * 60000);
+    
+    const jobs = await this.prisma.job.findMany({
+      where: {
+        status: JobStatus.PROCESSING,
+        updatedAt: { lt: cutoff },
+      },
+    });
+
+    return jobs.map(job => ({
+      id: job.id,
+      type: job.type,
+      payload: job.payload,
+      status: job.status as JobStatus,
+      attempts: job.attempts,
+      maxAttempts: job.maxAttempts,
+      idempotencyKey: job.idempotencyKey || undefined,
+      error: job.error || undefined,
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+    }));
   }
 
   async getById(id: string | number): Promise<JobModel | null> {

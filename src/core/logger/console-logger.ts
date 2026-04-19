@@ -1,19 +1,30 @@
 import { ILogger } from './logger.interface';
 
 export class ConsoleLogger implements ILogger {
-  log(message: string, context?: string): void {
-    console.log(`[LOG]${context ? ` [${context}]` : ''} ${message}`);
+  private format(level: string, message: string, context?: string, extra?: any): string {
+    const logObject = {
+      timestamp: new Date().toISOString(),
+      level,
+      context,
+      message,
+      ...extra,
+    };
+    return JSON.stringify(logObject);
   }
 
-  error(message: string, trace?: string, context?: string): void {
-    console.error(`[ERROR]${context ? ` [${context}]` : ''} ${message}${trace ? `\n${trace}` : ''}`);
+  log(message: string, context?: string, extra?: any): void {
+    console.log(this.format('INFO', message, context, extra));
   }
 
-  warn(message: string, context?: string): void {
-    console.warn(`[WARN]${context ? ` [${context}]` : ''} ${message}`);
+  error(message: string, trace?: string, context?: string, extra?: any): void {
+    console.error(this.format('ERROR', message, context, { trace, ...extra }));
   }
 
-  debug(message: string, context?: string): void {
-    console.debug(`[DEBUG]${context ? ` [${context}]` : ''} ${message}`);
+  warn(message: string, context?: string, extra?: any): void {
+    console.warn(this.format('WARN', message, context, extra));
+  }
+
+  debug(message: string, context?: string, extra?: any): void {
+    console.debug(this.format('DEBUG', message, context, extra));
   }
 }

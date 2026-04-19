@@ -28,6 +28,21 @@ export class QueueClient {
     return this.queue.add(name, data, bullOptions);
   }
 
+  async getJobCounts() {
+    return this.queue.getJobCounts('wait', 'active', 'delayed', 'completed', 'failed');
+  }
+
+  async setHeartbeat(jobId: string | number, timeoutSeconds: number = 30): Promise<void> {
+    const key = `job-heartbeat:${jobId}`;
+    const client = await this.queue.client;
+    await client.set(key, Date.now().toString(), 'EX', timeoutSeconds);
+  }
+
+  async getHeartbeat(jobId: string | number): Promise<string | null> {
+    const client = await this.queue.client;
+    return client.get(`job-heartbeat:${jobId}`);
+  }
+
   async close() {
     await this.queue.close();
   }

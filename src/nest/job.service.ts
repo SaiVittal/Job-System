@@ -42,4 +42,17 @@ export class JobQueueService {
     // But here we keep the same key to ensure we don't double-queue even during manual retry
     return this.dispatchJob(jobId, type, idempotencyKey);
   }
+
+  async getQueueLength(): Promise<number> {
+    const counts = await this.queueClient.getJobCounts();
+    return counts.wait + counts.active + counts.delayed;
+  }
+
+  async setHeartbeat(jobId: string | number) {
+    return this.queueClient.setHeartbeat(jobId);
+  }
+
+  async getHeartbeat(jobId: string | number) {
+    return this.queueClient.getHeartbeat(jobId);
+  }
 }

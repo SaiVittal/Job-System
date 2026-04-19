@@ -5,7 +5,7 @@ import { ILogger } from '../../core/logger/logger.interface';
 export class NotificationHandler implements JobHandler {
   constructor(private logger: ILogger) {}
 
-  async handle(job: JobModel): Promise<void> {
+  async handle(job: JobModel, signal?: AbortSignal): Promise<void> {
     const { userId, message, platform } = job.payload;
     
     this.logger.log(`[Notification] Sending ${platform} push to user ${userId}: "${message}"`, 'NotificationHandler');
